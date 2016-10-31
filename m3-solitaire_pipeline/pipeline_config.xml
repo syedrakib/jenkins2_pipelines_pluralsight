@@ -1,0 +1,103 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.8">
+  <actions/>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers/>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.21">
+    <script>#!/usr/bin/env groovy
+
+node {
+    stage (&apos;checkout install stash&apos;){
+        git url: &apos;https://github.com/g0t4/solitaire-systemjs-course&apos;,
+            branch: &apos;jenkins2-course&apos;
+        // pull dependencies from npm
+        sh &apos;npm install&apos;
+        // stash code &amp; dependencies to expedite subsequent testing
+        // and ensure same code &amp; dependencies are used throughout the pipeline
+        stash name: &apos;everything&apos;,
+            includes: &apos;**&apos;,
+            excludes: &apos;test-results/**&apos;
+    }
+
+    stage (&apos;phantom test&apos;){
+        // test with PhantomJS for &quot;fast&quot; &quot;generic&quot; results
+        try {
+            sh &quot;npm run test-single-run -- --browsers PhantomJS&quot;
+        }
+        catch (err){
+            echo &quot;Could not pass PhantomJS test&quot;
+            echo &quot;Caught: ${err}&quot;
+            email_notify(&quot;PhantomJS test failed!&quot;)
+            // continue rest of the build
+        }
+    }
+
+    stage (&apos;archival&apos;){
+        // archive karma test results (karma is configured to export junit xml files)
+        junit &apos;test-results/**/test-results.xml&apos;
+        // archive app artifacts
+        archiveArtifacts artifacts: &apos;app/**&apos;, excludes: null
+    }
+}
+
+stage (&apos;parallel browser tests&apos;){
+    parallel chrome:{
+        runBrowserTests(&apos;Chrome&apos;)
+    }, firefox:{
+        runBrowserTests(&apos;Firefox&apos;)
+    },
+    failFast: false
+}
+
+echo &quot;Some echo messages outside any stage or node. Let&apos;s see where/how it is echoed.&quot;
+
+
+stage (&apos;deployment&apos;){
+    lock (resource: &apos;deployment&apos;, inversePrecedence: true ) {
+        node {email_notify(&quot;Continue deployment?&quot;)}
+        input &quot;Proceed to deployment?&quot;
+        node (&apos;Docker&apos;) {
+            // write build number to index page so we can see this update
+            // on windows use: bat &quot;echo &apos;&lt;h1&gt;${env.BUILD_DISPLAY_NAME}&lt;/h1&gt;&apos; &gt;&gt; app/index.html&quot;
+            sh &quot;echo &apos;&lt;h1&gt;${env.BUILD_DISPLAY_NAME}&lt;/h1&gt;&apos; &gt;&gt; app/index.html&quot;
+            // deploy to a docker container mapped to port 3000
+            // on windows use: bat &apos;docker-compose up -d --build&apos;
+            sh &apos;docker-compose up -d --build&apos;
+            email_notify(&quot;Successfully deployed!&quot;)
+        }
+    }
+}
+
+def runBrowserTests(browserName){
+    // agent nodes must first be configured to hava labels based on the browsers that they support
+    node (browserName) {
+        echo &quot;Will run browser tests for &apos;${browserName}&apos; browser&quot;
+        sh &apos;pwd&apos;
+        sh &apos;ls&apos;
+        sh &apos;rm -rf *&apos;
+        sh &apos;ls&apos;
+        unstash &apos;everything&apos;
+        sh &quot;npm run test-single-run -- --browsers ${browserName}&quot;
+        junit &apos;test-results/**/test-results.xml&apos;
+        sh &apos;ls&apos;
+    }
+}
+
+def email_notify(status){
+    emailext (
+      to: &quot;wesmdemos@gmail.com&quot;,
+      subject: &quot;${status}: Job &apos;${env.JOB_NAME} [${env.BUILD_NUMBER}]&apos;&quot;,
+      body: &quot;&quot;&quot;&lt;p&gt;${status}: Job &apos;${env.JOB_NAME} [${env.BUILD_NUMBER}]&apos;:&lt;/p&gt;
+        &lt;p&gt;Check console output at &lt;a href=&apos;${env.BUILD_URL}&apos;&gt;${env.JOB_NAME} [${env.BUILD_NUMBER}]&lt;/a&gt;&lt;/p&gt;&quot;&quot;&quot;,
+    )
+}
+</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+</flow-definition>
