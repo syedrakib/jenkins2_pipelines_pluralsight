@@ -1,0 +1,65 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.7">
+  <actions/>
+  <description></description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers>
+        <hudson.triggers.SCMTrigger>
+          <spec>* * * * *</spec>
+          <ignorePostCommitHooks>false</ignorePostCommitHooks>
+        </hudson.triggers.SCMTrigger>
+      </triggers>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.21">
+    <script>node {
+    try {
+        notify(&apos;Started&apos;)
+
+        stage(&apos;checkout&apos;){
+            git &apos;https://github.com/g0t4/jenkins2-course-spring-petclinic.git&apos;
+        }
+
+        stage(&apos;compile test package&apos;){
+            sh &apos;mvn clean package&apos;
+        }
+
+        notify(&quot;Success&quot;)
+    }
+    catch (err){
+        echo &quot;Caught: ${err}&quot;
+        currentBuild.result = &quot;FAILURE&quot;
+        notify(&quot;Error ${err}&quot;)
+    }
+
+    stage(&apos;archival&apos;){
+        publishHTML([
+            allowMissing: true,
+            alwaysLinkToLastBuild: false,
+            keepAll: true,
+            reportDir: &apos;target/site/jacoco&apos;,
+            reportFiles: &apos;index.html&apos;,
+            reportName: &apos;Code Coverage&apos;
+        ])
+        junit &apos;target/surefire-reports/TEST-*.xml&apos;
+        archiveArtifacts ([
+            artifacts: &quot;target/*.?ar&quot;,
+            excludes: null
+        ])
+    }
+}
+
+def notify(status){
+    emailext (
+      to: &quot;syed.rakib.al.hasan@gmail.com&quot;,
+      subject: &quot;${status}: Job &apos;${env.JOB_NAME} [${env.BUILD_NUMBER}]&apos;&quot;,
+      body: &quot;&quot;&quot;&lt;p&gt;${status}: Job &apos;${env.JOB_NAME} [${env.BUILD_NUMBER}]&apos;:&lt;/p&gt;
+        &lt;p&gt;Check console output at &lt;a href=&apos;${env.BUILD_URL}console&apos;&gt;${env.JOB_NAME} [${env.BUILD_NUMBER}]&lt;/a&gt;&lt;/p&gt;&quot;&quot;&quot;,
+    )
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+</flow-definition>
